@@ -5,6 +5,7 @@ import dotenv from 'dotenv';
 import session from 'express-session';
 import passport from 'passport';
 import { Strategy as GoogleStrategy } from 'passport-google-oauth20';
+import { listEvents } from './Controllers/calendar-events.js';
 
 const app = express();
 dotenv.config();
@@ -38,13 +39,17 @@ passport.use(new GoogleStrategy(
 		callbackURL: `http://localhost:${port}/login/google/callback`
 	},
 	function (accessToken, refreshToken, profile, done) {
-
-		return done(null, profile);
+		
+		return done(null, {
+			profile,
+			accessToken
+		});
 	}
 ))
 
 passport.serializeUser((user, done) => {
-    done(null, user);
+	const { accessToken, ...userProfile } = user;
+    done(null, userProfile);
 });
 
 passport.deserializeUser((user, done) => {
@@ -62,6 +67,7 @@ app.use(express.static("public"));
 app.use(cookieParser());
 
 
+
 app.get('/', (req, res) => {
 	res.send(`
         <h1>Home Page</h1>
@@ -75,7 +81,8 @@ app.get('/login/google',
 			'openid',
 			'profile',
 			'email',
-			'https://www.googleapis.com/auth/calendar.events'
+			'https://www.googleapis.com/auth/calendar.events',
+			'https://www.googleapis.com/auth/calendar.readonly'
 		]
 	})
 );
@@ -83,8 +90,16 @@ app.get('/login/google',
 app.get('/login/google/callback', 
   passport.authenticate('google', { failureRedirect: '/' }),
   (req, res) => {
+	// console.log('User authenticated successfully and now redirected:', req?.user);
 
-    res.redirect('/profile');
+	const cookieOptions = { 
+		httpOnly: true,
+		secure: true
+	}
+
+    res
+	.cookie('accessToken', req.user.accessToken, cookieOptions)
+	.redirect('/profile');
   }
 );
 
@@ -93,16 +108,50 @@ app.get('/profile', (req, res) => {
 		return res.redirect('/');
 	}
 	console.log('User profile:', req?.user);
+	const userProfile = req.user?.profile;
 
 	res.send(`
         <h1>Profile Page</h1>
-        <p>Welcome, <strong>${req.user.displayName}</strong>!</p>
-        <p>Email: ${req.user.emails[0].value}</p>
-		<img src="${req.user.photos[0].value}" alt="Profile Picture" width="100" height="100">
+        <p>Welcome, <strong>${userProfile.displayName}</strong>!</p>
+        <p>Email: ${userProfile.emails[0].value}</p>
+		<img src="${userProfile.photos[0].value}" alt="Profile Picture" width="100" height="100">
+		<br>
+		<a href="/events">View Upcoming Events</a>
         <br><br>
         <a href="/logout">Logout</a>
     `);
 });
+
+app.get('/events', async (req, res) => {
+	if (!req.isAuthenticated()) {
+		console.log('User not authenticated. Redirecting to home page.');
+		return res.redirect('/');
+	}
+	console.log('Fetching events for user:', req.user.profile.displayName);
+	try {
+		const eventsResponse = await listEvents(req.cookies?.accessToken);
+		if (eventsResponse.status === 404 || eventsResponse.status === 500) {
+			res.status(eventsResponse.status).send(
+				`<h1>${eventsResponse.message}</h1>`
+			);
+		} else {
+			res.status(200)
+			.send( `
+				<h1>Upcoming Events</h1>
+				<ul>
+					${eventsResponse.events.map(event => `<li>${event.start?.dateTime ?? event.start?.date} - ${event.summary}</li>`).join('')}
+				</ul>
+				<a href="/profile">Back to Profile</a>
+			`);
+		}
+	}
+	catch (error) {
+		console.error('Error fetching events:', error);
+		res.status(500).send(
+			`<h1>Error fetching events</h1>`
+		);
+	}
+})
 
 app.get('/logout', (req, res, next) => {
     
