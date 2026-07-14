@@ -6,6 +6,7 @@ import session from 'express-session';
 import passport from 'passport';
 import { Strategy as GoogleStrategy } from 'passport-google-oauth20';
 import { listEvents } from './Controllers/calendar-events.js';
+import { runAgent } from './Controllers/eventPlannerModel.js';
 
 const app = express();
 dotenv.config();
@@ -117,6 +118,8 @@ app.get('/profile', (req, res) => {
 		<img src="${userProfile.photos[0].value}" alt="Profile Picture" width="100" height="100">
 		<br>
 		<a href="/events">View Upcoming Events</a>
+		<br>
+		<a href="/api/generate-response">Generate AI Response</a>
         <br><br>
         <a href="/logout">Logout</a>
     `);
@@ -157,10 +160,41 @@ app.get('/logout', (req, res, next) => {
     
     req.logout((err) => {
         if (err) { return next(err); }
-        res.redirect('/');
+		req.session.destroy((err) => {
+			if (err) {
+				console.error('Error destroying session during logout:', err);
+			}
+		});
+		res
+		.clearCookie('connect.sid')
+		.clearCookie('accessToken')
+        .redirect('/');
     });
 });
 
+app.get('/api/generate-response', async (req, res) => {
+	if (!req.isAuthenticated()) {
+		return res.status(401).json({ error: 'Unauthorized' });
+	}
+
+	const prompt = `
+	tell me about upcoming schedule for the movie spiderman brand new day in new delhi
+	`;
+	
+	if (!prompt) {
+		return res.status(400).json({ error: 'Prompt is required' });
+	}
+
+	try {
+		const response = await runAgent(prompt);
+		res.json({ 
+			message: 'AI response generated successfully',
+		 });
+	} catch (error) {
+		console.error('Error generating response:', error);
+		res.status(500).json({ error: 'Internal server error' });
+	}
+});
 
 app.listen(port, () => {
 	console.log(`Server running on http://localhost:${port}`);
