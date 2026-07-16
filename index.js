@@ -7,6 +7,7 @@ import passport from 'passport';
 import { Strategy as GoogleStrategy } from 'passport-google-oauth20';
 import { listEvents } from './Controllers/calendar-events.js';
 import { runAgent } from './Controllers/eventPlannerModel.js';
+// import cheerio from 'cheerio';
 
 const app = express();
 dotenv.config();
@@ -178,7 +179,7 @@ app.get('/api/generate-response', async (req, res) => {
 	}
 
 	const prompt = `
-	tell me about upcoming schedule for the movie spiderman brand new day in new delhi
+	Look for the movie tickets in New Delhi for The Odyssey movie on 17 july
 	`;
 	
 	if (!prompt) {
@@ -187,8 +188,9 @@ app.get('/api/generate-response', async (req, res) => {
 
 	try {
 		const response = await runAgent(prompt);
-		res.json({ 
+		res.status(200).json({ 
 			message: 'AI response generated successfully',
+			response: response
 		 });
 	} catch (error) {
 		console.error('Error generating response:', error);
